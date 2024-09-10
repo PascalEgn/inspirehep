@@ -1,0 +1,42 @@
+name: Tests
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: The reference to build
+        type: string
+        required: true
+
+jobs:
+    test-backend:
+        strategy:
+            fail-fast: false
+            matrix:
+              include:
+                - suite: unit
+                  splits: 1
+                - suite: integration
+                  splits: 8
+                - suite: integration-async
+                  splits: 4
+        uses: ./.github/workflows/inspirehep-backend-tests.yml
+        with:
+          ref: ${{ inputs.ref }}
+          suite: ${{ matrix.suite }}
+          splits: ${{ matrix.splits }}
+      
+    test-ui:
+      uses: ./.github/workflows/inspirehep-ui-tests.yml
+      with:
+        ref: ${{ inputs.ref }}
+
+    test-editor:
+      uses: ./.github/workflows/inspirehep-editor-tests.yml
+      with:
+        ref: ${{ inputs.ref }}
+
+    test-e2e:
+      uses: ./.github/workflows/inspirehep-e2e-tests.yml
+      with:
+        ref: ${{ inputs.ref }}
