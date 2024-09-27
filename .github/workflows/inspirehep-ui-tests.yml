@@ -1,0 +1,41 @@
+name: Build and run ui tests
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: The reference to test
+        type: string
+        required: true
+
+env:
+  DOCKER_BUILD_SUMMARY: ${{ vars.DOCKER_BUILD_SUMMARY }}
+  DOCKER_BUILD_RECORD_UPLOAD: ${{ vars.DOCKER_BUILD_RECORD_UPLOAD }}
+
+jobs:
+  inspirehep-ui-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+            ref: ${{ inputs.ref }}
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build docker image
+        uses: docker/build-push-action@v6
+        with:
+          tags: ui-build-${{ inputs.ref }}
+          context: ui/
+          push: false
+          load: true
+          target: build-stage
+
+      - name: Test
+        run: >
+          docker run
+          --network="host"
+          ui-build-${{ inputs.ref }}
+          yarn test
