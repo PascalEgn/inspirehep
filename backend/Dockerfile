@@ -9,14 +9,13 @@ FROM registry.cern.ch/cern-sis/base-images/python:3.11
 
 WORKDIR /opt/inspire
 
-ENTRYPOINT ["poetry", "run", "inspirehep"]
+ENTRYPOINT ["uv", "run", "inspirehep"]
 CMD ["shell"]
 
 ENV PYTHONBUFFERED=0 \
     SSL_CERT_FILE="/etc/ssl/certs/ca-certificates.crt" \
     REQUESTS_CA_BUNDLE="/etc/ssl/certs/ca-certificates.crt" \
-    PATH="/root/.local/bin:${PATH}" \
-    POETRY_VIRTUALENVS_CREATE=false
+    PATH="/root/.local/bin:${PATH}"
 
 COPY CERN_Root_Certification_Authority_2.pem /usr/local/share/ca-certificates/CERN_Root_Certification_Authority_2.crt
 
@@ -26,9 +25,8 @@ RUN apt-get update && \
     update-ca-certificates && \
     pip config set global.cert "${REQUESTS_CA_BUNDLE}"
 
-RUN curl -sSL https://install.python-poetry.org | python3.11 - --version 1.8.3 && poetry --version
-COPY poetry.lock pyproject.toml ./
-RUN poetry install --no-root
+RUN curl -LsSf https://astral.sh/uv/0.6.3/install.sh | sh && uv --version
+COPY uv.lock pyproject.toml ./
 
 COPY gunicorn_config.py ./
 COPY inspirehep inspirehep/
@@ -39,4 +37,4 @@ COPY data data/
 ARG VERSION
 ENV VERSION="${VERSION}"
 
-RUN poetry install
+RUN uv sync --system

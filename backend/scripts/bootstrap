@@ -31,4 +31,4 @@ if [ ${#flags[0]} -eq 0 ]; then
     flags=("--no-interaction" "--no-ansi")
 fi
 
-poetry install ${flags[@]}
+uv install ${flags[@]}

@@ -8,4 +8,4 @@
 
 set -e
 
-poetry run inspirehep fixtures setup --with-fixtures
+uv run inspirehep fixtures setup --with-fixtures

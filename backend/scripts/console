@@ -8,4 +8,4 @@
 
 set -e
 
-poetry run inspirehep shell
+uv run inspirehep shell
