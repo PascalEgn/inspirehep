@@ -151,6 +151,100 @@ def hep_create_dag():
             return s3_tarball_key
 
         @task(trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS)
+        def normalize_journal_titles(**context):
+            from invenio_db import db
+            from invenio_records.models import RecordMetadata
+            from sqlalchemy import JSON, String, cast, type_coerce
+
+            """
+            Normalize the journal titles in workflow data.
+
+            This function:
+            - Collects all journal titles from `publication_info` and
+                reference `publication_info`.
+            - Calls the Inspire API to normalize them.
+            - Updates each entry with the normalized title, journal record, and
+                categories.
+
+            Args:
+                context: Airflow context containing `params.workflow_id`.
+
+            Returns:
+                None
+            """
+            s3_workflow_id = context["params"]["workflow_id"]
+            workflow_data = read_object(s3_hook, bucket_name, s3_workflow_id)
+            data = workflow_data.get("data", {})
+
+            titles_to_normalize = get_value(
+                data, "publication_info.journal_title", []
+            ) + get_value(
+                data, "references.reference.publication_info.journal_title", []
+            )
+            if not titles_to_normalize:
+                return
+
+            response = inspire_http_hook.call_api(
+                endpoint="api/curation/literature/journal-title-normalization",
+                method="POST",
+                headers={
+                    "content-Type": "application/json",
+                    "accept": "application/json",
+                },
+                json={"journal_titles_list": titles_to_normalize},
+            )
+            response.raise_for_status()
+            normalized_titles_map = get_value(
+                response.json(), "normalized_journal_titles", []
+            )
+
+            def process_entries(entries, title_getter):
+                """Normalize journal titles and enrich with DB info."""
+                for entry in entries:
+                    journal_title = title_getter(entry)
+                    if not journal_title:
+                        continue
+
+                    normalized_title = normalized_titles_map.get(journal_title)
+                    entry["journal_title"] = normalized_title
+
+                    ref_query = RecordMetadata.query.filter(
+                        RecordMetadata.json["_collections"].op("?")("Journals")
+                    ).filter(
+                        cast(RecordMetadata.json["short_title"], String)
+                        == type_coerce(normalized_title, JSON)
+                    )
+                    result = db.session.execute(ref_query).fetchone()
+                    journal_data = result.records_metadata_json if result else None
+
+                    if not journal_data:
+                        continue
+
+                    if journal_data.get("self"):
+                        entry["journal_record"] = journal_data["self"]
+
+                    if journal_data.get("inspire_categories"):
+                        data.extra_data.setdefault(
+                            "journal_inspire_categories", []
+                        ).extend(journal_data["inspire_categories"])
+
+            process_entries(
+                get_value(data, "publication_info", []),
+                lambda e: e.get("journal_title"),
+            )
+            process_entries(
+                get_value(data, "references", []),
+                lambda e: get_value(e, "reference.publication_info", {}).get(
+                    "journal_title"
+                ),
+            )
+
+            if data.extra_data.get("journal_inspire_categories"):
+                data.extra_data["journal_inspire_categories"] = dedupe_list(
+                    data.extra_data["journal_inspire_categories"]
+                )
+
+        @task(trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS)
         def fetch_and_extract_journal_info(**context):
             s3_workflow_id = context["params"]["workflow_id"]
             workflow_data = read_object(s3_hook, bucket_name, s3_workflow_id)
@@ -451,7 +545,8 @@ def hep_create_dag():
 
         arxiv_plot_extract_task >> s3_workflow_id
         (
-            process_journal_info(
+            normalize_journal_titles()
+            >> process_journal_info(
                 s3_creds={
                     "user": s3_conn.login,
                     "secret": s3_conn.password,
